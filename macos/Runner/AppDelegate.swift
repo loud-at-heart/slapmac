@@ -23,7 +23,7 @@ private final class AccelerometerReader {
     ]
 
     IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
-    IOHIDManagerRegisterDeviceMatchingCallback(manager, Self.handleDeviceMatched, bridge(self))
+    IOHIDManagerRegisterDeviceMatchingCallback(manager, Self.handleDeviceMatched, Self.bridge(self))
 
     let openResult = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
     guard openResult == kIOReturnSuccess else {
@@ -60,7 +60,7 @@ private final class AccelerometerReader {
       reportBuffer,
       bufferSize,
       Self.handleInputReport,
-      bridge(self)
+      Self.bridge(self)
     )
 
     IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
