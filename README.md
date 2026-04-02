@@ -1,16 +1,21 @@
-# slapmac
+# SlapMac
 
-A new Flutter project.
+A Flutter macOS app where clicking the **keyboard area** or **trackpad area** plays a slap sound.
 
-## Getting Started
+## Features
 
-This project is a starting point for a Flutter application.
+- Two interactive zones:
+  - Keyboard area
+  - Trackpad area
+- **No predefined slap sounds**: you must choose your own audio file.
+- Supports common user-provided formats (`mp3`, `wav`, `m4a`, `aac`, `ogg`, `flac`).
+- Volume slider.
+- Preview button for the selected file.
+- Live counters for each zone and total slaps.
 
-A few resources to get you started if this is your first Flutter project:
+## Run
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```bash
+flutter pub get
+flutter run -d macos
+```
