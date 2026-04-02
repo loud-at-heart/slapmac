@@ -106,7 +106,7 @@ private final class AccelerometerReader {
   }
 
   private static let handleDeviceMatched: IOHIDDeviceCallback = { context, _, _, device in
-    guard let reader = unbridge(context), let device = device else {
+    guard let reader = unbridge(context) else {
       return
     }
     reader.registerReportCallback(for: device)
