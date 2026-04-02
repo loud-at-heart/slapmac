@@ -1,16 +1,31 @@
-# slapmac
+# SlapMac
 
-A new Flutter project.
+A Flutter macOS app that plays a **user-provided slap sound** when a chassis impact/slap is detected.
 
-## Getting Started
+No keyboard or trackpad interaction is required.
 
-This project is a starting point for a Flutter application.
+## Detection pipeline
 
-A few resources to get you started if this is your first Flutter project:
+Native Swift `SlapDetector` combines five concurrent signal checks over accelerometer data:
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+- High-pass filter (removes gravity trend)
+- STA/LTA ratio at 3 timescales
+- CUSUM change detection
+- Kurtosis spike detection
+- Peak/MAD outlier detection
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+When enough algorithms vote positive, the app emits a slap event and plays your selected sound.
+
+## Features
+
+- No predefined sounds: user picks their own audio file (`mp3`, `wav`, `m4a`, `aac`, `ogg`, `flac`).
+- Native macOS accelerometer monitoring (`CoreMotion`) bridged to Flutter via channels.
+- Live slap counter and last event.
+- Volume slider and preview playback.
+
+## Run
+
+```bash
+flutter pub get
+flutter run -d macos
+```
