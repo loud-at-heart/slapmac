@@ -16,10 +16,16 @@ Native Swift `SlapDetector` combines five concurrent signal checks over accelero
 
 When enough algorithms vote positive, the app emits a slap event and plays your selected sound.
 
+## Sensor access on macOS
+
+- Uses **IOKit HID** (not CoreMotion) to match `AppleSPUHIDDevice`.
+- Reads HID input reports and parses raw X/Y/Z `Int32` values.
+- Converts raw values to G-force by dividing each axis by `65536`.
+
 ## Features
 
 - No predefined sounds: user picks their own audio file (`mp3`, `wav`, `m4a`, `aac`, `ogg`, `flac`).
-- Native macOS accelerometer monitoring (`CoreMotion`) bridged to Flutter via channels.
+- Native macOS IOKit sensor monitoring bridged to Flutter via channels.
 - Live slap counter and last event.
 - Volume slider and preview playback.
 

@@ -1,6 +1,6 @@
 import Cocoa
 import FlutterMacOS
-import IOKit
+import IOKit.hid
 
 private struct AccelerationSample {
   let timestamp: TimeInterval
@@ -9,18 +9,122 @@ private struct AccelerationSample {
 }
 
 private final class AccelerometerReader {
+  private var hidManager: IOHIDManager?
+  private var reportBuffers: [UnsafeMutableRawPointer: UnsafeMutablePointer<UInt8>] = [:]
+
   var onSample: ((Double, Double, Double, TimeInterval) -> Void)?
 
-  // NOTE:
-  // CoreMotion accelerometer APIs are unavailable on macOS for this target,
-  // so this reader currently acts as a compile-safe placeholder.
-  // A future iteration can wire real IOKit HID acceleration samples here.
   func start() -> Bool {
-    _ = onSample
-    return false
+    stop()
+
+    let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+    let matching: [String: Any] = [
+      kIOHIDProductKey as String: "AppleSPUHIDDevice"
+    ]
+
+    IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
+    IOHIDManagerRegisterDeviceMatchingCallback(manager, Self.handleDeviceMatched, bridge(self))
+
+    let openResult = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+    guard openResult == kIOReturnSuccess else {
+      return false
+    }
+
+    IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+    hidManager = manager
+    return true
   }
 
-  func stop() {}
+  func stop() {
+    for (_, buffer) in reportBuffers {
+      buffer.deallocate()
+    }
+    reportBuffers.removeAll()
+
+    if let manager = hidManager {
+      IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+      IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+    }
+
+    hidManager = nil
+  }
+
+  private func registerReportCallback(for device: IOHIDDevice) {
+    let bufferSize = 64
+    let reportBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+    reportBuffer.initialize(repeating: 0, count: bufferSize)
+    reportBuffers[deviceKey(device)] = reportBuffer
+
+    IOHIDDeviceRegisterInputReportCallback(
+      device,
+      reportBuffer,
+      bufferSize,
+      Self.handleInputReport,
+      bridge(self)
+    )
+
+    IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+  }
+
+  private func handleReport(_ report: UnsafeMutablePointer<UInt8>?, length: CFIndex) {
+    guard let report = report, length >= 22 else {
+      return
+    }
+
+    let xRaw = readInt32(from: report, offset: 0)
+    let yRaw = readInt32(from: report, offset: 4)
+    let zRaw = readInt32(from: report, offset: 8)
+
+    let x = Double(xRaw) / 65536.0
+    let y = Double(yRaw) / 65536.0
+    let z = Double(zRaw) / 65536.0
+
+    onSample?(x, y, z, CFAbsoluteTimeGetCurrent())
+  }
+
+  private func readInt32(from report: UnsafeMutablePointer<UInt8>, offset: Int) -> Int32 {
+    let b0 = UInt32(report[offset])
+    let b1 = UInt32(report[offset + 1]) << 8
+    let b2 = UInt32(report[offset + 2]) << 16
+    let b3 = UInt32(report[offset + 3]) << 24
+    return Int32(bitPattern: b0 | b1 | b2 | b3)
+  }
+
+  private func deviceKey(_ device: IOHIDDevice) -> UnsafeMutableRawPointer {
+    Unmanaged.passUnretained(device).toOpaque()
+  }
+
+  private static func bridge(_ object: AccelerometerReader) -> UnsafeMutableRawPointer {
+    Unmanaged.passUnretained(object).toOpaque()
+  }
+
+  private static func unbridge(_ pointer: UnsafeMutableRawPointer?) -> AccelerometerReader? {
+    guard let pointer = pointer else {
+      return nil
+    }
+    return Unmanaged<AccelerometerReader>.fromOpaque(pointer).takeUnretainedValue()
+  }
+
+  private static let handleDeviceMatched: IOHIDDeviceCallback = { context, _, _, device in
+    guard let reader = unbridge(context), let device = device else {
+      return
+    }
+    reader.registerReportCallback(for: device)
+  }
+
+  private static let handleInputReport: IOHIDReportCallback = {
+    context,
+    _,
+    _,
+    _,
+    _,
+    report,
+    reportLength in
+    guard let reader = unbridge(context) else {
+      return
+    }
+    reader.handleReport(report, length: reportLength)
+  }
 }
 
 private final class SlapDetector {
