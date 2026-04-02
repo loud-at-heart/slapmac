@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 void main() {
   runApp(const SlapMacApp());
@@ -30,13 +33,53 @@ class SlapPadPage extends StatefulWidget {
 }
 
 class _SlapPadPageState extends State<SlapPadPage> {
+  static const MethodChannel _methodChannel = MethodChannel('slapmac/monitoring');
+  static const EventChannel _eventChannel = EventChannel('slapmac/events');
+
   final AudioPlayer _player = AudioPlayer();
 
+  StreamSubscription<dynamic>? _monitorSubscription;
   String? _audioPath;
   double _volume = 0.9;
-  int _keyboardSlaps = 0;
-  int _trackpadSlaps = 0;
-  String _lastZone = 'None yet';
+  int _slapCount = 0;
+  String _lastEvent = 'None yet';
+  String _monitoringStatus = 'Starting accelerometer slap monitoring...';
+
+  @override
+  void initState() {
+    super.initState();
+    _startHardwareMonitoring();
+  }
+
+  Future<void> _startHardwareMonitoring() async {
+    try {
+      final response = await _methodChannel.invokeMethod<Map<Object?, Object?>>(
+        'startMonitoring',
+      );
+      final started = response?['started'] == true;
+
+      setState(() {
+        _monitoringStatus = started
+            ? 'Monitoring chassis impacts (no keyboard/trackpad input needed).'
+            : 'Accelerometer unavailable on this Mac. Slap detection is disabled.';
+      });
+    } on MissingPluginException {
+      setState(() {
+        _monitoringStatus =
+            'Native monitoring unavailable in this environment (tests/web/etc).';
+      });
+    } on PlatformException catch (error) {
+      setState(() {
+        _monitoringStatus = 'Could not start monitoring: ${error.message}';
+      });
+    }
+
+    _monitorSubscription = _eventChannel.receiveBroadcastStream().listen((event) {
+      if (event is String) {
+        _onHardwareSlap(event);
+      }
+    });
+  }
 
   Future<void> _pickAudioFile() async {
     final result = await FilePicker.platform.pickFiles(
@@ -61,23 +104,14 @@ class _SlapPadPageState extends State<SlapPadPage> {
     await _player.play(DeviceFileSource(_audioPath!));
   }
 
-  Future<void> _onZoneSlap(String zone) async {
-    if (_audioPath == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please choose your own slap audio file first.'),
-        ),
-      );
+  Future<void> _onHardwareSlap(String eventName) async {
+    if (!mounted || _audioPath == null) {
       return;
     }
 
     setState(() {
-      _lastZone = zone;
-      if (zone == 'Keyboard area') {
-        _keyboardSlaps++;
-      } else {
-        _trackpadSlaps++;
-      }
+      _lastEvent = eventName;
+      _slapCount++;
     });
 
     await _playSlapSound();
@@ -85,13 +119,14 @@ class _SlapPadPageState extends State<SlapPadPage> {
 
   @override
   void dispose() {
+    _monitorSubscription?.cancel();
+    _methodChannel.invokeMethod('stopMonitoring');
     _player.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final total = _keyboardSlaps + _trackpadSlaps;
     final chosenAudioLabel = _audioPath == null
         ? 'No file selected'
         : 'Selected: ${_audioPath!.split('/').last}';
@@ -114,7 +149,7 @@ class _SlapPadPageState extends State<SlapPadPage> {
                   label: const Text('Choose slap audio'),
                 ),
                 SizedBox(
-                  width: 300,
+                  width: 360,
                   child: Text(
                     chosenAudioLabel,
                     overflow: TextOverflow.ellipsis,
@@ -148,79 +183,35 @@ class _SlapPadPageState extends State<SlapPadPage> {
               ],
             ),
             const SizedBox(height: 16),
-            Text(
-              'Tap/click a zone to simulate a slap.',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: _SlapZone(
-                      title: 'Keyboard area',
-                      color: Colors.blueGrey.shade100,
-                      onSlap: () => _onZoneSlap('Keyboard area'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: _SlapZone(
-                      title: 'Trackpad area',
-                      color: Colors.teal.shade100,
-                      onSlap: () => _onZoneSlap('Trackpad area'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(12),
                 child: Text(
-                  'Total slaps: $total • Keyboard: $_keyboardSlaps • '
-                  'Trackpad: $_trackpadSlaps • Last zone: $_lastZone',
+                  _monitoringStatus,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  'Detection model: high-pass + STA/LTA + CUSUM + kurtosis + '
+                  'peak/MAD voting. Trigger fires when enough algorithms agree.',
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  'Detected slaps: $_slapCount • Last event: $_lastEvent',
                 ),
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SlapZone extends StatelessWidget {
-  const _SlapZone({
-    required this.title,
-    required this.onSlap,
-    required this.color,
-  });
-
-  final String title;
-  final VoidCallback onSlap;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onSlap,
-      behavior: HitTestBehavior.opaque,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.black26),
-        ),
-        child: Center(
-          child: Text(
-            title,
-            style: Theme.of(context).textTheme.headlineSmall,
-            textAlign: TextAlign.center,
-          ),
         ),
       ),
     );
