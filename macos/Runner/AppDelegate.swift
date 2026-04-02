@@ -1,6 +1,6 @@
 import Cocoa
 import FlutterMacOS
-import CoreMotion
+import IOKit
 
 private struct AccelerationSample {
   let timestamp: TimeInterval
@@ -9,38 +9,18 @@ private struct AccelerationSample {
 }
 
 private final class AccelerometerReader {
-  private let motionManager = CMMotionManager()
-  private let queue = OperationQueue()
-
   var onSample: ((Double, Double, Double, TimeInterval) -> Void)?
 
+  // NOTE:
+  // CoreMotion accelerometer APIs are unavailable on macOS for this target,
+  // so this reader currently acts as a compile-safe placeholder.
+  // A future iteration can wire real IOKit HID acceleration samples here.
   func start() -> Bool {
-    guard motionManager.isAccelerometerAvailable else {
-      return false
-    }
-
-    motionManager.accelerometerUpdateInterval = 1.0 / 12.5
-    queue.maxConcurrentOperationCount = 1
-
-    motionManager.startAccelerometerUpdates(to: queue) { [weak self] data, _ in
-      guard let self = self, let data = data else {
-        return
-      }
-
-      self.onSample?(
-        data.acceleration.x,
-        data.acceleration.y,
-        data.acceleration.z,
-        data.timestamp
-      )
-    }
-
-    return true
+    _ = onSample
+    return false
   }
 
-  func stop() {
-    motionManager.stopAccelerometerUpdates()
-  }
+  func stop() {}
 }
 
 private final class SlapDetector {
